@@ -4,20 +4,39 @@ import replicate
 import requests
 import json
 import io
+import asyncio
+from threading import Thread
 import base64
 from PIL import Image
 import settings
-
 import sys
-sys.path.insert(1, '../stable-diffusion-webui/tortoise')
+sys.path.insert(1, '../stable-diffusion-webui')
+import webui
+
+#startup stable diffusion
+IMAGE_DIR = 'images/'
+IMAGE_GENERATOR_INIT = False
+
+def generate_image_initialise():
+  global IMAGE_GENERATOR_INIT
+  
+  webui.api_threaded()
+  IMAGE_GENERATOR_INIT = True
+
+async def generate_image_local(prompt, img_url, width, height):
+  global IMAGE_GENERATOR_INIT
+
+  if IMAGE_GENERATOR_INIT == False:
+    print('Generator not Initialised!')
+    return
 
 
-def generate_image_local(prompt, img_url, width, height):
+  print('image prompt: ' + prompt)
 
-  payload = {'prompt': prompt, 'steps': '10', 'width': width, 'height': height}
+  payload = {'prompt': prompt, 'steps': 20, 'width': width, 'height': height, 'cfg_scale':7}
 
   try:
-    response = requests.post(url=f'http://127.0.0.1:7860/sdapi/v1/txt2img',
+    response = requests.post(url=f'http://127.0.0.1:7861/sdapi/v1/txt2img',
                              json=payload)
   except Exception:
     print('Error!')
@@ -26,7 +45,7 @@ def generate_image_local(prompt, img_url, width, height):
 
   print(data.keys())
 
-  image_file = 'output.png'
+  image_file = IMAGE_DIR + 'output.png'
   all_images = []
   for i in data['images']:
     d = i.split(",", 1)[0]
@@ -34,10 +53,11 @@ def generate_image_local(prompt, img_url, width, height):
     image.save(image_file)
     all_images.append(image)
 
-  return image_file
-
+  img_url[0] = image_file
 
 def generate_image(prompt, img_url, width, height):
+  global IMAGE_GENERATOR_INIT
+
   print('image prompt: ' + prompt)
 
   model = replicate.models.get("stability-ai/stable-diffusion")
@@ -87,3 +107,11 @@ def generate_image(prompt, img_url, width, height):
   print(output)
 
   img_url[0] = output[0]
+
+
+def generate_image_callback(prompt, img_url, width, height):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(generate_image_local(prompt, img_url, width, height))
+    loop.close()

@@ -1,10 +1,10 @@
 import os
 import openai
 import settings
+import asyncio
 
 
-
-def generate_text(query,query_response):
+async def generate_text(query,query_response):
 
   openai.api_key = settings.OPENAI_API_TOKEN
 
@@ -31,3 +31,10 @@ def generate_text(query,query_response):
 
   query_response[0] = text_response
 
+
+def generate_text_callback(query,query_response):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(generate_text(query,query_response))
+    loop.close()

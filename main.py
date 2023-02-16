@@ -7,14 +7,18 @@ import random
 from keep_alive import keep_alive
 import subprocess
 import settings
-from image_generator import generate_image
-from text_generator import generate_text
-from audio_generator import generate_audio
+from image_generator import generate_image_callback , generate_image_initialise
+from text_generator import generate_text_callback
+from audio_generator import generate_audio_callback , generate_stiched_audio_callback
 from threading import Thread
 import time
 
 #keep env alive
 # keep_alive()
+
+#intialise image generation code
+generate_image_initialise()
+
 
 
 # Declare our intent with the bot and setting the messeage_content to true
@@ -44,6 +48,7 @@ LOCATION_KEYWORD = "!place"
 LOCATION = " bar, "
 
 IMAGE_COMPOSITION = LOCATION + " looking away , portrait photo headshot by mucha, sharp focus, elegant, render, octane, detailed, masterpiece, rim lit, color"
+IMAGE_DIMENSIONS = [512,512]
 
 CHARACTER_IMG_PROMPT = []
 for i, name in enumerate(CHARACTER_NAMES):
@@ -54,7 +59,7 @@ for i, name in enumerate(CHARACTER_NAMES):
   #                             IMAGE_COMPOSITION)
 
 CHARACTER_INDEX = 0
-CONVERSATION_RANGE = [12, 20]
+CONVERSATION_RANGE = [3, 4]
 THREAD_RUNNING = False
 CHANNEL_ID = ""
 MESSAGE_CONTENT = ""
@@ -66,12 +71,16 @@ async def update_character(help_msg):
   img_prompt = CHARACTER_IMG_PROMPT[CHARACTER_INDEX] + " in a " + LOCATION
   await send_msg(CHARACTER_NAMES[CHARACTER_INDEX] + ' is walking into a ' +
                  LOCATION)
+  
   img_url = [None] * 1
-  generate_image(img_prompt, img_url, 768, 768)
+  img_thread = Thread(target=generate_image_callback,
+                      args=(img_prompt, img_url, IMAGE_DIMENSIONS[0], IMAGE_DIMENSIONS[1]))
+  img_thread.start()
+  img_thread.join()
   await send_image(img_url[0])
+
   if help_msg != '':
     await send_msg(help_msg)
-
 
 async def update(message):
 
@@ -196,6 +205,7 @@ async def print_help(message):
 
 async def send_msg(text):
   global CHANNEL_ID
+  await client.wait_until_ready()
   text = re.sub('\*.*?\*', '', text)
   text = text.replace('How I Met Your Mother', 'the show')
 
@@ -209,14 +219,18 @@ async def send_msg(text):
 
 async def send_image(image_url):
   global CHANNEL_ID
+  await client.wait_until_ready()
   try:
     channel = client.get_channel(CHANNEL_ID)
-    await channel.send(image_url)
+    #await channel.send(image_url)
+    await channel.send(file=discord.File(image_url))
+
   except Exception:
     return
 
 async def send_audio(audio_file):
   global CHANNEL_ID
+  await client.wait_until_ready()
   try:
     channel = client.get_channel(CHANNEL_ID)
     await channel.send(file=discord.File(audio_file))
@@ -239,8 +253,11 @@ async def chat(message, character_name, character_trait, topic):
 
   #send openai query
   chat_response = [None] * 1
-  generate_text(query, chat_response)
+  chat_thread = Thread(target=generate_text_callback, args=(query, chat_response))
+  chat_thread.start()
+  chat_thread.join()
   chat_response = chat_response[0]
+
   if chat_response == '':  #empty response
     return
 
@@ -248,9 +265,7 @@ async def chat(message, character_name, character_trait, topic):
   chat_response = chat_response[chat_response.find(':') + 1:]
   chat_response = ''.join(chat_response.splitlines())
 
-  audio_url = [None] * 1
-  audio_thread = Thread(target=generate_audio, args=(chat_response,character_name, audio_url))
-  audio_thread.start()
+
 
   #response_text = response_text.replace('Marshall', 'Marshal')  #common mistake
   #response_text = character_name + ": " + response_text
@@ -260,7 +275,11 @@ async def chat(message, character_name, character_trait, topic):
   await send_msg(response_text)
 
   #WAIT FOR AUDIO THREAD
+  audio_url = [None] * 1
+  audio_thread = Thread(target=generate_audio_callback, args=(chat_response,character_name,audio_url))
+  audio_thread.start()
   audio_thread.join()
+
   print(audio_url[0])
   await send_audio(audio_url[0])
 
@@ -304,12 +323,12 @@ async def scripted_conversation(message, character_indicies):
 
   #RUN GENERQATION THREADS
   img_url = [None] * 1
-  img_thread = Thread(target=generate_image,
-                      args=(img_query, img_url, 768, 1024))
+  img_thread = Thread(target=generate_image_callback,
+                      args=(img_query, img_url, IMAGE_DIMENSIONS[0], IMAGE_DIMENSIONS[1]))
   img_thread.start()
 
   chat_response = [None] * 1
-  chat_thread = Thread(target=generate_text, args=(query, chat_response))
+  chat_thread = Thread(target=generate_text_callback, args=(query, chat_response))
   chat_thread.start()
 
   #Wait for Threads To Finish
@@ -341,10 +360,26 @@ async def scripted_conversation(message, character_indicies):
 
   print(script_dictionary)
 
+  persons = [i[0] for i in script_dictionary]
+  texts = [i[1] for i in script_dictionary]
+
+  #send audio script
+  audio_url = [None] * 1
+  audio_thread = Thread(target=generate_stiched_audio_callback, args=(texts,persons,audio_url))
+  audio_thread.start()
+
+
   for script in script_dictionary:
     time.sleep(2)
     text = script[0] + ":" + script[1]
     await send_msg(text)
+
+  #send audio
+  audio_thread.join()
+  print(audio_url[0])
+  await send_audio(audio_url[0])
+
+
 
   response_text = ''.join(text_data)
   return response_text
